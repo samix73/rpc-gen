@@ -74,7 +74,7 @@ var (
 	verbose   = flag.Bool("verbose", false, "Enable verbose logging")
 )
 
-func log(format string, args ...interface{}) {
+func log(format string, args ...any) {
 	if *verbose {
 		slog.Info(fmt.Sprintf(format, args...))
 	}
@@ -91,27 +91,121 @@ func extractTypeName(expr ast.Expr) string {
 	}
 }
 
-func extractMethods(interfaceType *ast.InterfaceType) []Method {
+func validateMethodSignature(fset *token.FileSet, fileName, serviceName, methodName string, funcType *ast.FuncType) bool {
+	if funcType == nil {
+		pos := fset.Position(funcType.Pos())
+		log("%s:%d:%d %s.%s is not a valid function",
+			fileName, pos.Line, pos.Column, serviceName, methodName)
+
+		return false
+	}
+
+	if funcType.Params == nil {
+		pos := fset.Position(funcType.Pos())
+		log("%s:%d:%d %s.%s has no parameters",
+			fileName, pos.Line, pos.Column, serviceName, methodName)
+
+		return false
+	}
+
+	if len(funcType.Params.List) != 2 {
+		pos := fset.Position(funcType.Pos())
+		log("%s:%d:%d %s.%s does not have exactly two parameters",
+			fileName, pos.Line, pos.Column, serviceName, methodName)
+
+		return false
+	}
+
+	ctxSelector, ok := funcType.Params.List[0].Type.(*ast.SelectorExpr)
+	if !ok {
+		pos := fset.Position(funcType.Params.List[0].Pos())
+		log("%s:%d:%d %s.%s first parameter is not valid",
+			fileName, pos.Line, pos.Column, serviceName, methodName)
+
+		return false
+	}
+
+	if ctxSelector.X.(*ast.Ident).Name+"."+ctxSelector.Sel.Name != "context.Context" {
+		pos := fset.Position(funcType.Params.List[0].Pos())
+
+		log("%s:%d:%d %s.%s first parameter is not context.Context",
+			fileName, pos.Line, pos.Column, serviceName, methodName)
+		return false
+	}
+
+	if _, ok := funcType.Params.List[1].Type.(*ast.Ident); !ok {
+		pos := fset.Position(funcType.Params.List[1].Pos())
+		log("%s:%d:%d %s.%s second parameter is not valid",
+			fileName, pos.Line, pos.Column, serviceName, methodName)
+		return false
+	}
+
+	if funcType.Results == nil {
+		pos := fset.Position(funcType.Pos())
+		log("%s:%d:%d %s.%s has no return values",
+			fileName, pos.Line, pos.Column, serviceName, methodName)
+
+		return false
+	}
+
+	if len(funcType.Results.List) != 2 {
+		pos := fset.Position(funcType.Pos())
+
+		log("%s:%d:%d %s.%s method does not have exactly two return values",
+			fileName, pos.Line, pos.Column, serviceName, methodName)
+		return false
+	}
+
+	if _, ok := funcType.Results.List[0].Type.(*ast.StarExpr); !ok {
+		pos := fset.Position(funcType.Results.List[0].Pos())
+		log("%s:%d:%d %s.%s first return value is not a pointer type",
+			fileName, pos.Line, pos.Column, serviceName, methodName)
+
+		return false
+	}
+
+	errRespIdent, ok := funcType.Results.List[1].Type.(*ast.Ident)
+	if !ok {
+		pos := fset.Position(funcType.Results.List[1].Pos())
+		log("%s:%d:%d %s.%s second return value is not valid",
+			fileName, pos.Line, pos.Column, serviceName, methodName)
+
+		return false
+	}
+
+	if errRespIdent.Name != "error" {
+		pos := fset.Position(funcType.Results.List[1].Pos())
+		log("%s:%d:%d %s.%s second return value is not error",
+			fileName, pos.Line, pos.Column, serviceName, methodName)
+
+		return false
+	}
+
+	return true
+}
+
+func extractMethods(fset *token.FileSet, fileName, serviceName string, interfaceType *ast.InterfaceType) []Method {
 	var methods []Method
 
 	for _, method := range interfaceType.Methods.List {
 		if funcType, ok := method.Type.(*ast.FuncType); ok {
+			if !validateMethodSignature(fset, fileName, serviceName, method.Names[0].Name, funcType) {
+				continue
+			}
+
 			methodName := method.Names[0].Name
 
-			// Extract request and response types from parameters
-			if len(funcType.Params.List) >= 2 {
-				requestType := extractTypeName(funcType.Params.List[0].Type)
-				responseType := extractTypeName(funcType.Params.List[1].Type)
+			requestType := extractTypeName(funcType.Params.List[1].Type)
+			responseType := extractTypeName(funcType.Results.List[0].Type)
 
-				// Remove pointer prefix from response type
-				responseType = strings.TrimPrefix(responseType, "*")
+			// Remove pointer prefix from response type
+			responseType = strings.TrimPrefix(responseType, "*")
 
-				methods = append(methods, Method{
-					Name:         methodName,
-					RequestType:  requestType,
-					ResponseType: responseType,
-				})
-			}
+			methods = append(methods, Method{
+				Name:         methodName,
+				RequestType:  requestType,
+				ResponseType: responseType,
+			})
 		}
 	}
 
@@ -181,7 +275,7 @@ func main() {
 						log("Found interface: %s\n", serviceName)
 
 						// Extract methods from interface
-						methods := extractMethods(interfaceType)
+						methods := extractMethods(fset, fileName, serviceName, interfaceType)
 
 						serviceDatas = append(serviceDatas, ServiceData{
 							PackageName: pkg.Name,
