@@ -38,12 +38,12 @@ type MyService interface {
     DoSomething(request *Request, response *Response) error
 }
 
-type Request struct {
-    Data string
+type Args struct {
+	A, B int
 }
 
-type Response struct {
-    Result string
+type Reply struct {
+	C int
 }
 ```
 
