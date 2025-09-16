@@ -24,7 +24,7 @@ Run the tool in a directory containing your Go source files with interface defin
 
 Command Line Options
 
-- `-output <dir>`: Specify the output directory for generated files (default: current directory).
+- `-input <file> (required)`: Specify the input Go file or package directory containing the interfaces.
 - `-verbose`: Enable verbose logging.
 
 ### Example
@@ -32,10 +32,10 @@ Command Line Options
 1. Create a Go file with an interface, e.g., `service.go`:
 
 ```go
-package main
+package api
 
 type MyService interface {
-    DoSomething(request Request) (*Response, error)
+    DoSomething(request *Request, response *Response) error
 }
 
 type Request struct {
@@ -50,10 +50,10 @@ type Response struct {
 2. Run the generator:
 
 ```bash
-rpc-gen -output ./generated
+rpc-gen
 ```
 
-This generates `myservice_client_gen.go` with the client code.
+This generates `service_client_gen.go` with the client code.
 
 3. Use the generated client in your code:
 
@@ -64,12 +64,13 @@ if err != nil {
 }
 defer client.Close()
 
-req := Request{Data: "hello"}
-resp, err := client.DoSomething(req)
-if err != nil {
-    log.Fatal(err)
-}
-fmt.Println(resp.Result)
+req := &Request{Data: "hello"}
+result := &Response{}
+err := client.DoSomething(req, result)
+
+// Handle error
+
+fmt.Println(result.Result)
 ```
 
 ### Generated Code Features
