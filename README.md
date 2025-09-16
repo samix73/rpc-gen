@@ -34,16 +34,16 @@ Command Line Options
 ```go
 package main
 
-type MyService interface {
-    DoSomething(request Request) (*Response, error)
+type Service interface {
+	Hello(args *Args, reply *Reply) error
 }
 
-type Request struct {
-    Data string
+type Args struct {
+	A, B int
 }
 
-type Response struct {
-    Result string
+type Reply struct {
+	C int
 }
 ```
 
